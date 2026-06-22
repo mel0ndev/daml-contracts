@@ -1,0 +1,41 @@
+module Account where
+import Holding
+import Instrument
+
+template Account
+    with 
+        custodian : Party
+        owner     : Party
+    where
+        signatory custodian
+        observer owner
+        
+        -- generic crediting function once Accept is called
+        -- allows multiple instruments to be credited
+        nonconsuming choice Credit : ContractId Holding
+            with
+                symbol : Text
+                amount : Decimal
+           controller custodian
+           do
+               create Holding with
+                issuer = custodian
+                owner  = owner -- can shorten to `owner` 
+                symbol = symbol
+                amount = amount
+
+        nonconsuming choice PayDividend : ContractId Holding
+            with
+                equityHoldingCid  : ContractId Holding
+                instrumentCid     : ContractId Instrument
+                ratePerShare      : Decimal 
+            controller custodian
+            do
+                equity <- fetch equityHoldingCid
+                instrument <- fetch instrumentCid
+                assert (equity.owner == owner && equity.symbol == instrument.symbol && instrument.issuer == custodian)
+                create Holding with
+                    issuer = custodian
+                    owner = owner 
+                    symbol = "USD"
+                    amount = ratePerShare * equity.amount

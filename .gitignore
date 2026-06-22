@@ -1,0 +1,10 @@
+# Zig build artifacts
+client/zig-out/
+client/.zig-cache/
+client/zig-pkg/
+client/logs.txt
+
+# DAML/Canton generated + runtime files
+daml/HelloWorld/.daml/
+daml/HelloWorld/log/
+daml/HelloWorld/sandbox.log

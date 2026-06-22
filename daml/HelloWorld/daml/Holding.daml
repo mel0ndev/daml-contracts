@@ -1,0 +1,11 @@
+module Holding where
+
+template Holding 
+    with
+        issuer : Party
+        owner  : Party
+        symbol : Text
+        amount : Decimal
+    where
+        signatory issuer
+        observer owner

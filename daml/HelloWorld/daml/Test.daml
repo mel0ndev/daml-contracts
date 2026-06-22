@@ -1,0 +1,85 @@
+module Test where
+
+import Daml.Script
+import DA.Assert ((===))
+
+import Instrument
+import Account
+import AccountProposal
+import Holding
+
+-- bank + alice with an already-accepted Account, the starting point for most tests
+setup : Script (Party, Party, ContractId Account)
+setup = do
+    bank  <- allocateParty "Bank"
+    alice <- allocateParty "Alice"
+    proposal <- submit bank do
+        createCmd AccountProposal with custodian = bank, owner = alice
+    account <- submit alice do
+        exerciseCmd proposal Accept
+    pure (bank, alice, account)
+
+-- Accept turns the proposal into an Account with the expected parties
+testAcceptCreatesAccount : Script ()
+testAcceptCreatesAccount = do
+    (bank, alice, account) <- setup
+    Some acc <- queryContractId alice account
+    acc.custodian === bank
+    acc.owner === alice
+
+-- the allowlist handshake is one-sided: only the owner may Accept
+testOnlyOwnerCanAccept : Script ()
+testOnlyOwnerCanAccept = do
+    bank  <- allocateParty "Bank"
+    alice <- allocateParty "Alice"
+    proposal <- submit bank do
+        createCmd AccountProposal with custodian = bank, owner = alice
+    submitMustFail bank do
+        exerciseCmd proposal Accept
+
+-- Credit mints a Holding to the owner with the requested symbol/amount
+testCreditMintsHolding : Script ()
+testCreditMintsHolding = do
+    (bank, alice, account) <- setup
+    holdingCid <- submit bank do
+        exerciseCmd account Credit with symbol = "AAPL", amount = 100.0
+    Some h <- queryContractId alice holdingCid
+    h.issuer === bank
+    h.owner === alice
+    h.symbol === "AAPL"
+    h.amount === 100.0
+
+-- minting is custodian-only; the owner cannot credit themselves
+testOnlyCustodianCanCredit : Script ()
+testOnlyCustodianCanCredit = do
+    (_bank, alice, account) <- setup
+    submitMustFail alice do
+        exerciseCmd account Credit with symbol = "AAPL", amount = 100.0
+
+-- a balance is the sum of an owner's Holdings for one symbol, ignoring others
+testBalanceSumsHoldings : Script ()
+testBalanceSumsHoldings = do
+    (bank, alice, account) <- setup
+    submit bank do exerciseCmd account Credit with symbol = "AAPL", amount = 100.0
+    submit bank do exerciseCmd account Credit with symbol = "AAPL", amount = 50.0
+    submit bank do exerciseCmd account Credit with symbol = "MSFT", amount = 7.0
+    holdings <- query @Holding alice
+    let aapl = sum [h.amount | (_, h) <- holdings, h.symbol == "AAPL"]
+    aapl === 150.0
+
+-- PayDividend pays USD equal to ratePerShare * the equity holding's amount
+testPayDividendPaysProRata : Script ()
+testPayDividendPaysProRata = do
+    (bank, alice, account) <- setup
+    instrument <- submit bank do
+        createCmd Instrument with issuer = bank, symbol = "AAPL"
+    holding <- submit bank do
+        exerciseCmd account Credit with symbol = "AAPL", amount = 100.0
+    usdCid <- submit bank do
+        exerciseCmd account PayDividend with
+            equityHoldingCid = holding
+            instrumentCid = instrument
+            ratePerShare = 2.0
+    Some usd <- queryContractId alice usdCid
+    usd.symbol === "USD"
+    usd.amount === 200.0

@@ -1,0 +1,9 @@
+
+module Instrument where
+
+template Instrument
+    with
+        issuer : Party
+        symbol : Text
+    where
+        signatory issuer 

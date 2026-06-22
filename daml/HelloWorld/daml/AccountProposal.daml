@@ -1,0 +1,16 @@
+module AccountProposal where
+import Account
+
+template AccountProposal
+    with
+        custodian : Party
+        owner     : Party
+    where
+        signatory custodian
+        observer owner
+
+
+        choice Accept : ContractId Account
+            controller owner
+            do
+                create Account with custodian, owner

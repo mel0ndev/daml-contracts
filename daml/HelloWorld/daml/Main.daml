@@ -1,0 +1,46 @@
+module Main where
+import Daml.Script
+import Instrument
+import Account
+import AccountProposal
+import Holding
+
+demo : Script ()
+demo = do 
+    bank  <- allocateParty "Bank"
+    alice <- allocateParty "Alice"
+
+    debug ("Bank creates AAPL")
+    appl <- submit bank do 
+        createCmd Instrument with issuer = bank, symbol = "AAPL"
+
+    debug ("Bank creates AccountProposal contract")
+    proposal <- submit bank do
+        createCmd AccountProposal with custodian = bank, owner = alice
+
+    debug ("Alice Accepts")
+    account <- submit alice do
+        exerciseCmd proposal Accept 
+
+    debug ("Bank credits Alice with 100 shares")
+    holding <- submit bank do
+        exerciseCmd account Credit with symbol = "AAPL", amount = 100.0
+
+    holdings <- query @Holding alice
+    let balance = sum [h.amount | (_, h) <- holdings, h.symbol == "AAPL" ]
+    debug ("Alice's AAPL balance: " <> show balance)
+
+    debug ("Bank/Issuer pays a dividend to Alice for holding AAPL")
+    dividend <- submit bank do
+        exerciseCmd account PayDividend with
+            equityHoldingCid = holding
+            instrumentCid = appl
+            ratePerShare = 2.0
+
+    usdHoldings <- query @Holding alice
+    let dividendBalance = sum [h.amount | (_, h) <- usdHoldings, h.symbol == "USD" ]
+    debug ("Alice's USD dividend balance: " <> show dividendBalance)
+
+
+
+    pure ()
