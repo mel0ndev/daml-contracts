@@ -4,11 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const httpz = b.dependency("httpz", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("httpz");
-
     const exe = b.addExecutable(.{
         .name = "client",
         .root_module = b.createModule(.{
@@ -24,9 +19,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             // List of modules available for import in source files part of the
             // root module.
-            .imports = &.{
-                .{ .name = "httpz", .module  =  httpz },
-            },
+            .imports = &.{},
         }),
         .use_llvm = true
     });

@@ -60,11 +60,9 @@ After making solid progress on the contracts on day two, I decided that for day 
 - Overall this was a good time, I enjoyed learning about Canton, though I'm not sure I entirely understand how to make production grade contracts quite yet, this was a nice introduction. I would be interested to see much more you can do with this model, as it's quite a deviation from Ethereum.
 
 
-
 Citations: 
 
 1) https://docs.canton.network/appdev/modules/m3-dev-environment and the rest of the docs
 2) https://www.canton.network/blog/what-is-cip-56-a-guide-to-cantons-token-standard and https://github.com/canton-foundation/cips/blob/main/cip-0056/cip-0056.md
 3) https://github.com/digital-asset/daml-finance
 4) https://docs.daml.com/daml/patterns/propose-accept.html 
-5)  

@@ -2,6 +2,8 @@
 //create our structs, etc
 const std = @import("std");
 
+const LedgerError = error{HttpError};
+
 const user_id = "ledger-api-user";
 
 const wildcard = .{
@@ -65,30 +67,45 @@ pub const Ledger = struct {
         self.client.deinit();
     }
     
-    //get
-    pub fn get(self: *Ledger, url: []const u8) ![]const u8 {
-        var body: std.Io.Writer.Allocating = .init(self.allocator); 
+    pub fn get(self: *Ledger, url: []const u8, token: []const u8) ![]const u8 {
+        var body: std.Io.Writer.Allocating = .init(self.allocator);
         defer body.deinit();
 
-        var buf: [256]u8 = undefined;  
+        var buf: [256]u8 = undefined;
         const full_url = try std.fmt.bufPrint(&buf, "{s}{s}", .{self.base_url, url});
+
+        var auth_buf: [512]u8 = undefined;
+        const auth_value = try std.fmt.bufPrint(&auth_buf, "Bearer {s}", .{token});
 
         const result = try self.client.fetch(.{
             .location = .{ .url = full_url },
+            .extra_headers = &.{
+                .{ .name = "Authorization", .value = auth_value },
+            },
             .response_writer = &body.writer,
         });
-        _ = result; //handle the error  
-        
-        var list = body.toArrayList(); 
-        return try list.toOwnedSlice(self.allocator);
+
+        var list = body.toArrayList();
+        const response_body = try list.toOwnedSlice(self.allocator);
+
+        if (result.status.class() != .success) {
+            std.log.err("GET {s} failed with HTTP {d}: {s}", .{ url, @intFromEnum(result.status), response_body });
+            self.allocator.free(response_body);
+            return LedgerError.HttpError;
+        }
+
+        return response_body;
     }
 
-    pub fn post(self: *Ledger, url: []const u8, payload: ?[]const u8) ![]const u8 {
-        var body: std.Io.Writer.Allocating = .init(self.allocator); 
+    pub fn post(self: *Ledger, url: []const u8, payload: ?[]const u8, token: []const u8) ![]const u8 {
+        var body: std.Io.Writer.Allocating = .init(self.allocator);
         defer body.deinit();
 
-        var buf: [256]u8 = undefined;  
+        var buf: [256]u8 = undefined;
         const full_url = try std.fmt.bufPrint(&buf, "{s}{s}", .{self.base_url, url});
+
+        var auth_buf: [512]u8 = undefined;
+        const auth_value = try std.fmt.bufPrint(&auth_buf, "Bearer {s}", .{token});
 
         const result = try self.client.fetch(.{
             .location = .{ .url = full_url },
@@ -96,14 +113,21 @@ pub const Ledger = struct {
             .payload = payload,
             .headers = .{ .content_type = .{ .override = "application/json" } },
             .extra_headers = &.{
-                .{ .name = "Authorization", .value = "Bearer alice" },
+                .{ .name = "Authorization", .value = auth_value },
             },
             .response_writer = &body.writer,
         });
-        _ = result; //TODO handle the error
 
-        var list = body.toArrayList(); 
-        return try list.toOwnedSlice(self.allocator);
+        var list = body.toArrayList();
+        const response_body = try list.toOwnedSlice(self.allocator);
+
+        if (result.status.class() != .success) {
+            std.log.err("POST {s} failed with HTTP {d}: {s}", .{ url, @intFromEnum(result.status), response_body });
+            self.allocator.free(response_body);
+            return LedgerError.HttpError;
+        }
+
+        return response_body;
     }
 
     pub fn allocateParty(self: *Ledger, party: []const u8) ![]const u8 {
@@ -112,7 +136,7 @@ pub const Ledger = struct {
         }, .{});
         defer self.allocator.free(payload);
         
-        const res = try self.post("/v2/parties", payload);
+        const res = try self.post("/v2/parties", payload, user_id);
         defer self.allocator.free(res);
 
         const parsed = try std.json.parseFromSlice(PartyResponse, self.allocator, res, .{.ignore_unknown_fields = true});
@@ -140,19 +164,19 @@ pub const Ledger = struct {
                     .actAs = .{act_as},
                     .userId = user_id,
                 },
-                .transactionFormater = .{
+                .transactionFormatter = .{
                     .transactionShape = "TRANSACTION_SHAPE_ACS_DELTA",
                     .eventFormat = wildcard
                 },
         }, .{});
         defer self.allocator.free(payload);
         
-        const res = try self.post("/v2/commands/submit-and-wait-for-transaction", payload);
+        const res = try self.post("/v2/commands/submit-and-wait-for-transaction", payload, act_as);
         defer self.allocator.free(res);
 
         const parsed = try std.json.parseFromSlice(TxResponse, self.allocator, res, .{.ignore_unknown_fields = true});
-        defer parsed.deinit(); 
-       
+        defer parsed.deinit();
+
         var contract_id: ?[]const u8 = null;
         const events = parsed.value.transaction.events;  
         for (events) |event| {
@@ -197,19 +221,19 @@ pub const Ledger = struct {
                     .actAs = .{act_as},
                     .userId = user_id,
                 },
-                .transactionFormater = .{
+                .transactionFormatter = .{
                     .transactionShape = "TRANSACTION_SHAPE_ACS_DELTA",
                     .eventFormat = wildcard
                 },
         }, .{});
         defer self.allocator.free(payload);
 
-        const res = try self.post("/v2/commands/submit-and-wait-for-transaction", payload);
+        const res = try self.post("/v2/commands/submit-and-wait-for-transaction", payload, act_as);
         defer self.allocator.free(res);
-        
+
         const parsed = try std.json.parseFromSlice(TxResponse, self.allocator, res, .{.ignore_unknown_fields = true});
-        defer parsed.deinit(); 
-        
+        defer parsed.deinit();
+
         var created_id: ?[]const u8 = null;
         const events = parsed.value.transaction.events;  
         for (events) |event| {
@@ -228,7 +252,7 @@ pub const Ledger = struct {
     }
 
     pub fn ledgerEnd(self: *Ledger) !i64 {
-        const res = try self.get("/v2/state/ledger-end");
+        const res = try self.get("/v2/state/ledger-end", user_id);
         defer self.allocator.free(res);
 
         const parsed = try std.json.parseFromSlice(LedgerEnd, self.allocator, res, .{ .ignore_unknown_fields = true });
@@ -257,7 +281,7 @@ pub const Ledger = struct {
         , .{ party, pf_json, offset });
         defer self.allocator.free(payload);
 
-        const res = try self.post("/v2/state/active-contracts", payload);
+        const res = try self.post("/v2/state/active-contracts", payload, party);
         defer self.allocator.free(res);
 
         const parsed = try std.json.parseFromSlice([]Acs, self.allocator, res, .{ .ignore_unknown_fields = true });
@@ -279,10 +303,11 @@ fn sumHoldings(entries: []const Acs, symbol: []const u8) !f32 {
         const active = entry.contractEntry.JsActiveContract orelse continue;
         if (!std.mem.endsWith(u8, active.createdEvent.templateId, ":Holding:Holding")) continue;
 
-        // Holding args are { owner, symbol, amount } — symbol & amount are strings
         const arg = active.createdEvent.createArgument.object;
-        if (!std.mem.eql(u8, arg.get("symbol").?.string, symbol)) continue;
-        total += try std.fmt.parseFloat(f32, arg.get("amount").?.string);
+        const holding_symbol = (arg.get("symbol") orelse continue).string;
+        if (!std.mem.eql(u8, holding_symbol, symbol)) continue;
+        const amount_str = (arg.get("amount") orelse continue).string;
+        total += try std.fmt.parseFloat(f32, amount_str);
     }
     return total;
 }
